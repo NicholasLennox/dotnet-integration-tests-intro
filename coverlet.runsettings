@@ -4,9 +4,7 @@
     <DataCollectors>
       <DataCollector friendlyName="XPlat Code Coverage">
         <Configuration>
-          <Include>
-            [TodoApi]*Controllers*
-          </Include>
+          <Include>[TodoApi]TodoApi.Controllers.*</Include>
         </Configuration>
       </DataCollector>
     </DataCollectors>
