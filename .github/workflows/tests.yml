@@ -1,0 +1,40 @@
+# .github/workflows/tests.yml
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore
+
+      - name: Run tests with coverage
+        run: dotnet test --no-build --collect:"XPlat Code Coverage"
+
+      - name: Generate coverage report
+        run: |
+          dotnet tool install -g dotnet-reportgenerator-globaltool
+          reportgenerator -reports:"**/TestResults/**/coverage.cobertura.xml" -targetdir:"coverage" -reporttypes:Html
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/

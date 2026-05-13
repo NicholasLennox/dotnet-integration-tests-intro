@@ -1,0 +1,16 @@
+# Build output
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+.vs/
+
+# Test results and coverage
+TestResults/
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
