@@ -4,12 +4,9 @@
     <DataCollectors>
       <DataCollector friendlyName="XPlat Code Coverage">
         <Configuration>
-          <ExcludeByFile>
-            **/Migrations/*.cs,
-            **/Data/*.cs,
-            **/Models/*.cs,
-            **/Program.cs
-          </ExcludeByFile>
+          <Include>
+            [TodoApi]*Controllers*
+          </Include>
         </Configuration>
       </DataCollector>
     </DataCollectors>
