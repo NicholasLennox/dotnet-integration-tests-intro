@@ -10,6 +10,7 @@ A minimal .NET 10 Web API demonstrating how to structure a multi-project solutio
 TodoApi/                  ← The Web API (controllers, models, DbContext)
 TodoApi.Tests/            ← The integration test project
 docker-compose.yml        ← Runs a local SQL Server database
+coverlet.runsettings      ← Coverage configuration
 README.md
 .gitignore
 ```
@@ -78,6 +79,7 @@ rm TodoApi.Tests/UnitTest1.cs
 
 touch docker-compose.yml
 touch .gitignore
+touch coverlet.runsettings
 ```
 
 
@@ -247,6 +249,152 @@ The tests do not need Docker running - they use the in-memory database entirely.
 
 
 
+## Part 6 - Code coverage
+
+Coverage tells you which lines of your code were actually executed during the test run. The xunit template already includes `coverlet.collector` so collection is built in - you just need to tell it what to measure and how to display it.
+
+### Install the report generator
+
+This is a global dotnet tool that turns the raw coverage data into a readable HTML report. Install it once on your machine:
+
+```bash
+dotnet tool install -g dotnet-reportgenerator-globaltool
+```
+
+### coverlet.runsettings
+
+Create a file called `coverlet.runsettings` at the root of the solution alongside the `.slnx`. Despite the unfamiliar extension, it is just an XML file - you can open and edit it like any other. The `.runsettings` extension is what tells the .NET test runner to treat it as test configuration.
+
+Without any configuration, coverlet measures everything in the assembly - migrations, models, DbContext, generated code - and your numbers will be meaningless noise. This project uses an `Include` filter to measure only the controllers, which is the only code worth tracking:
+
+```xml
+<?xml version="1.0" encoding="utf-8" ?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Include>[TodoApi]TodoApi.Controllers.*</Include>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>
+```
+
+`[TodoApi]` is the assembly name - the name of your API project. `TodoApi.Controllers.*` matches every class in that namespace. When you adapt this for your own project, change both values to match your assembly and controller namespace.
+
+> **Important:** You will find suggestions online to add `CompilerGeneratedAttribute` to an `ExcludeByAttribute` list. Do not do this. The C# compiler compiles async methods into state machines and marks them with that attribute. Adding it will silently exclude all your async action methods from coverage - you will end up with a report that only shows the constructor and nothing else.
+
+### Running coverage locally
+
+```bash
+dotnet test --settings coverlet.runsettings --collect:"XPlat Code Coverage"
+reportgenerator -reports:"**/TestResults/**/coverage.cobertura.xml" -targetdir:"coverage" -reporttypes:Html
+```
+
+Then open `coverage/index.html` in a browser. On Windows:
+
+```bash
+start coverage/index.html
+```
+
+The test command runs your tests and produces a `coverage.cobertura.xml` file inside `TestResults/`. The `reportgenerator` command reads that XML and produces the HTML report. The `coverage/` folder is gitignored - it is generated output and does not belong in the repo.
+
+### Reading the report
+
+The report shows line coverage and branch coverage per method. Line coverage tells you whether a line was executed at all. Branch coverage tells you whether both paths of a conditional were tested - for example, whether you tested both the found and not-found cases of a `GetById` endpoint.
+
+A method at 0% means you have no test that reaches it at all. A branch at 50% means you tested one side of an `if` but not the other. Use the report as a map of what is not yet tested, not as a score to maximise.
+
+
+
+## Part 7 - GitHub Actions
+
+### What is GitHub Actions?
+
+GitHub Actions is a CI/CD platform built into GitHub. CI stands for Continuous Integration - the practice of automatically running your tests every time code is pushed, so that broken code cannot quietly sit in the repo unnoticed.
+
+You define workflows in YAML files inside `.github/workflows/`. GitHub reads those files and runs them on its own servers whenever the trigger conditions are met - a push, a pull request, a schedule, or manually. Each workflow runs in a clean virtual machine, so it has no memory of previous runs and no access to your local environment.
+
+The practical result for this project: every time someone pushes to `main` or opens a pull request, GitHub spins up a Linux machine, checks out the code, builds it, runs the tests, and reports back. If any test fails, the PR is blocked. The coverage report is saved as a downloadable artifact attached to the run.
+
+### The workflow file
+
+Create `.github/workflows/tests.yml` - the folder structure matters, GitHub will not find it anywhere else.
+
+```yaml
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore
+
+      - name: Run tests with coverage
+        run: dotnet test --no-build --settings coverlet.runsettings --collect:"XPlat Code Coverage"
+
+      - name: Generate coverage report
+        run: |
+          dotnet tool install -g dotnet-reportgenerator-globaltool
+          reportgenerator -reports:"**/TestResults/**/coverage.cobertura.xml" -targetdir:"coverage" -reporttypes:Html
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+```
+
+### What each part means
+
+**`on`** defines when the workflow runs. `push` to `main` runs it on every direct commit. `pull_request` targeting `main` runs it whenever a PR is opened or updated against `main`.
+
+**`jobs`** is the list of things to run. Each job gets its own clean virtual machine. This workflow has one job called `test`.
+
+**`runs-on: ubuntu-latest`** tells GitHub which operating system to use. Ubuntu is the most common choice - it is fast, free, and .NET runs on it without any extra setup.
+
+**`steps`** are the individual commands that run in sequence. If any step fails, the rest are skipped and the workflow is marked as failed.
+
+**`uses`** refers to a pre-built action from the GitHub Actions marketplace. `actions/checkout@v4` clones your repo onto the runner. `actions/setup-dotnet@v4` installs the .NET SDK. `actions/upload-artifact@v4` saves files so you can download them after the run.
+
+**`run`** is a shell command, exactly as you would type it in a terminal. The `|` character allows multiple commands on separate lines.
+
+### What happens on a pull request
+
+When you open a PR targeting `main`, GitHub runs the workflow and reports the result directly on the PR page as a status check. If tests pass, the check shows green. If any test fails, it shows red and GitHub can be configured to block the merge entirely.
+
+After a successful run, the coverage report is available as a downloadable artifact under the Actions tab. Click the workflow run, scroll to Artifacts, and download `coverage-report`. Open `index.html` locally to see the full report.
+
+The workflow does not need Docker running. Because the tests use an in-memory database, they run fine on the GitHub Actions runner with no extra infrastructure.
+
+### What comes next
+
+The natural next step is extending this workflow to build a Docker image and push it to the GitHub Container Registry after tests pass. That turns this into a full CI pipeline - test, build, store. It is a separate addition and does not require changing anything here.
+
+It is also possible to have the coverage percentage posted as a comment directly on the PR rather than just as a downloadable artifact. That requires a third-party action and a small amount of extra configuration - worth adding once the basics are solid.
+
+
+
 ## What is deliberately missing
 
 **No service layer.** Controllers talk directly to the DbContext. Adding a service or repository layer is a natural next step - it will not break the tests because they test at the HTTP boundary, not the internal structure.
@@ -258,59 +406,3 @@ The tests do not need Docker running - they use the in-memory database entirely.
 **No global error handling.** Unhandled exceptions surface as 500s. Production code should handle this with middleware.
 
 The tests work fine without any of it. Get the test setup right first, then add complexity on top.
-
-## Part 6 - GitHub Actions
- 
-The workflow lives at `.github/workflows/tests.yml`. It runs on every push to `main` and on every pull request targeting `main`.
- 
-```yaml
-name: Tests
- 
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
- 
-jobs:
-  test:
-    runs-on: ubuntu-latest
- 
-    steps:
-      - uses: actions/checkout@v4
- 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
- 
-      - name: Restore dependencies
-        run: dotnet restore
- 
-      - name: Build
-        run: dotnet build --no-restore
- 
-      - name: Run tests with coverage
-        run: dotnet test --no-build --settings coverlet.runsettings
- 
-      - name: Generate coverage report
-        run: |
-          dotnet tool install -g dotnet-reportgenerator-globaltool
-          reportgenerator -reports:"**/TestResults/**/coverage.cobertura.xml" -targetdir:"coverage" -reporttypes:Html
- 
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
-```
- 
-The workflow does not need Docker. Because the tests use an in-memory database, they run fine on the GitHub Actions runner with no extra infrastructure.
- 
-After each run the coverage report is uploaded as an artifact. You can download it from the Actions tab in GitHub and open `index.html` locally to browse coverage by file and line.
- 
-For pull requests, a failing test will block the merge - GitHub marks the PR check as failed and shows which step broke. This is the core value: tests become a gate, not an afterthought.
- 
-### What comes next
- 
-The natural next step is extending this workflow to build a Docker image and push it to the GitHub Container Registry. That turns this into a proper CI pipeline - tests pass, image gets built and stored, ready to deploy.

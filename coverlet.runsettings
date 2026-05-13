@@ -4,9 +4,7 @@
     <DataCollectors>
       <DataCollector friendlyName="XPlat Code Coverage">
         <Configuration>
-          <Exclude>[*.Tests]*,[*]*.Migrations.*,[*]*.Data.*,[*]*.Models.*,[*]Program</Exclude>
-          <ExcludeByAttribute>GeneratedCodeAttribute</ExcludeByAttribute>
-          <SkipAutoProps>true</SkipAutoProps>
+          <Include>[TodoApi]TodoApi.Controllers.*</Include>
         </Configuration>
       </DataCollector>
     </DataCollectors>
