@@ -291,7 +291,7 @@ jobs:
         run: dotnet build --no-restore
  
       - name: Run tests with coverage
-        run: dotnet test --no-build --collect:"XPlat Code Coverage"
+        run: dotnet test --no-build --settings coverlet.runsettings
  
       - name: Generate coverage report
         run: |
